@@ -47,18 +47,21 @@ def enviar_correo(correo_usuario, asunto, contenido):
         print(f"❌ Error al enviar correo a {correo_usuario}: {e}")
         return False
 
-# --- OBTENER EMAIL DEL USUARIO ---
-def obtener_email_usuario(usuario_id):
+# --- OBTENER EMAIL Y NOMBRE DEL USUARIO ---
+def obtener_datos_usuario(usuario_id):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor()
-        cursor.execute("SELECT correo FROM usuario WHERE id = %s", (usuario_id,))
+        cursor.execute("SELECT correo, nombre FROM usuario WHERE id = %s", (usuario_id,))
         resultado = cursor.fetchone()
         cursor.close()
         conn.close()
-        return resultado[0] if resultado else None
+        if resultado:
+            return {'correo': resultado[0], 'nombre': resultado[1]}
+        else:
+            return None
     except Exception as e:
-        print(f"❌ Error al obtener email de usuario {usuario_id}: {e}")
+        print(f"❌ Error al obtener datos de usuario {usuario_id}: {e}")
         return None
 
 # --- ACTUALIZAR NOTIFICACIÓN COMO VISTA ---
@@ -93,26 +96,41 @@ def procesar_notificaciones():
         conn.close()
 
         for notif in notificaciones:
-            email_usuario = obtener_email_usuario(notif['camara_id'])
-            if not email_usuario:
+            datos_usuario = obtener_datos_usuario(notif['camara_id'])
+            if not datos_usuario or not datos_usuario['correo']:
                 print(f"⚠️ Usuario ID {notif['camara_id']} no tiene email registrado.")
                 continue
 
+            nombre_usuario = datos_usuario['nombre'] if datos_usuario['nombre'] else "Empleado/a"
+
             if notif['status_id'] == 2:
                 asunto = "⚠️ Alerta: Retardo detectado"
+                contenido = f"""
+                    <p>Hola estimado/a empleado/a <strong>{nombre_usuario}</strong>,</p>
+                    <p>Se te notifica que has registrado tu retardo número <strong>{notif['descripcion'].split()[-1]}</strong>.</p>
+                    <p>Por favor, procura mejorar tu puntualidad para evitar inconvenientes futuros.</p>
+                    <p>Saludos cordiales,</p>
+                    <p>Área de Recursos Humanos</p>
+                """
             elif notif['status_id'] == 4:
                 asunto = "🚫 Alerta: Acceso denegado por disciplina"
+                contenido = f"""
+                    <p>Hola estimado/a empleado/a <strong>{nombre_usuario}</strong>,</p>
+                    <p>Te informamos que debido a que has acumulado <strong>{notif['descripcion'].split('Retardos: ')[1].split(',')[0]}</strong> retardos y <strong>{notif['descripcion'].split('Faltas: ')[1]}</strong> falta(s), tu acceso a la planta ha sido denegado.</p>
+                    <p>Te recomendamos acudir a la oficina de Recursos Humanos para aclarar esta situación.</p>
+                    <p>Saludos cordiales,</p>
+                    <p>Área de Recursos Humanos</p>
+                """
             else:
                 asunto = "📢 Notificación del sistema"
+                contenido = f"""
+                    <p>Hola estimado/a empleado/a <strong>{nombre_usuario}</strong>,</p>
+                    <p>{notif['descripcion']}</p>
+                    <p>Saludos cordiales,</p>
+                    <p>Área de Recursos Humanos</p>
+                """
 
-            contenido = f"""
-                <h3>{asunto}</h3>
-                <p><strong>Descripción:</strong> {notif['descripcion']}</p>
-                <p><strong>Usuario ID:</strong> {notif['camara_id']}</p>
-                <p><strong>Status ID:</strong> {notif['status_id']}</p>
-            """
-
-            if enviar_correo(email_usuario, asunto, contenido):
+            if enviar_correo(datos_usuario['correo'], asunto, contenido):
                 actualizar_notificacion_vista(notif['id'])
 
     except mysql.connector.Error as err:
